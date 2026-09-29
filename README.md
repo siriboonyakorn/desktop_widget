@@ -1,4 +1,4 @@
-# desktop_widget
+﻿# desktop_widget
 
 A customizable Windows desktop widget suite built with **Windows PowerShell 5.1 and WPF**. No Python, Node.js, browser extension, paid app, or administrator installation is required to run it.
 
@@ -83,4 +83,3 @@ UI tests create `preview-*.png` files, which are ignored by Git. `Test-AppSearch
 ## License
 
 [MIT](LICENSE). Windows and installed-app icons remain the property of their respective owners. This project is not affiliated with Microsoft or Apple.
-

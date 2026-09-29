@@ -39,7 +39,7 @@ try {
     $script:macTaskNextPoll = [DateTime]::MinValue; Update-MacDockTasks
     $grouped = @($script:macDynamicPanel.Children | Where-Object { @($script:macButtonTasks[$_.GetHashCode()] | Where-Object Handle -eq $task.Handle).Count })
     if ($grouped.Count -ne 1 -or @($script:macButtonTasks[$grouped[0].GetHashCode()]).Count -lt 2) { throw 'Unpinned app windows were not grouped into one button.' }
-    if (-not $script:macTrayButton -or $script:macTrayButton.ToolTip -notmatch 'System tray') { throw 'Tray control missing.' }
+    if (-not $script:topBarWindow.FindName('TrayStatus')) { throw 'Tray control missing.' }
     [void][MacTaskNative]::ShowWindowAsync($task.Handle,6)
     Start-Sleep -Milliseconds 250
     if (-not [MacTaskNative]::IsIconic($task.Handle)) { throw 'Test window did not minimize.' }

@@ -1,4 +1,6 @@
 ﻿Add-Type -Path (Join-Path $PSScriptRoot 'TopBarNative.cs')
+Add-Type -AssemblyName UIAutomationClient,UIAutomationTypes
+Add-Type -Path (Join-Path $PSScriptRoot 'TrayNative.cs') -ReferencedAssemblies @('System.dll','System.Core.dll',[Windows.DependencyObject].Assembly.Location,[Windows.Automation.AutomationElement].Assembly.Location,[Windows.Automation.ControlType].Assembly.Location)
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
 [Windows.Devices.Radios.Radio,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null
 [Windows.Devices.Radios.RadioAccessStatus,Windows.System.Devices,ContentType=WindowsRuntime] | Out-Null
@@ -27,6 +29,15 @@ $topPanelSurface.SnapsToDevicePixels = $true
 $topPanelSurface.BorderThickness = [Windows.Thickness]::new(1)
 $script:topPanelItems = [Windows.Controls.StackPanel]::new()
 $scroll = [Windows.Controls.ScrollViewer]::new(); $scroll.VerticalScrollBarVisibility = 'Auto'; $scroll.MaxHeight = [Math]::Max(240,[Windows.SystemParameters]::WorkArea.Height - 80)
+[xml]$scrollStyleXml = @'
+<Style xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" TargetType="ScrollBar">
+ <Setter Property="Width" Value="6"/><Setter Property="Margin" Value="5,3,0,3"/>
+ <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="ScrollBar">
+  <Track x:Name="PART_Track" IsDirectionReversed="True"><Track.Thumb><Thumb><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="#55FFFFFF" CornerRadius="3"/></ControlTemplate></Thumb.Template></Thumb></Track.Thumb></Track>
+ </ControlTemplate></Setter.Value></Setter>
+</Style>
+'@
+$topPanelSurface.Resources.Add([Windows.Controls.Primitives.ScrollBar],[Windows.Markup.XamlReader]::Load([Xml.XmlNodeReader]::new($scrollStyleXml)))
 $scroll.Content = $topPanelItems; $topPanelSurface.Child = $scroll; $topPanel.Child = $topPanelSurface
 $topPanel.Add_Opened({
     $script:topBarEntry.Configuring = $true
@@ -170,13 +181,63 @@ function Add-TopNetworks {
             $row.Add_Click({
                 param($sender,$e)
                 if ($sender.Tag.Connected) { return }
-                if (-not $sender.Tag.Profile) { Invoke-TopAction 'ms-settings:network-wifi'; return }
-                try { [MenuWifi]::Connect($sender.Tag); $script:topRadioMessage.Text = 'Connection requested. Refresh to check status.' } catch { $script:topRadioMessage.Text = 'Could not connect. Open Wi-Fi Settings.' }
+                Show-TopWifiJoin $sender.Tag
             })
             [void]$script:topPanelItems.Children.Add($row)
         }
     } catch { [void](Add-TopText 'Windows could not provide nearby networks. Check Wi-Fi and location permission in Settings.') }
 }
+function Show-TopWifiJoin($Network) {
+    if ($script:topWifiJob -and -not $script:topWifiJob.IsCompleted) { return }
+    $script:topPanelItems.Children.Clear()
+    [void](Add-TopText $Network.Name 17 'White')
+    $script:topWifiSelected = $Network
+    $script:topWifiPassword = $null
+    if (-not $Network.Profile -and $Network.Secure) {
+        if ($Network.Auth -notin @(7,9) -or $Network.Cipher -ne 4) {
+            [void](Add-TopText 'Enterprise and legacy networks need initial setup in Windows.')
+            [void](Add-TopAction 'Wi-Fi Settings...' 'ms-settings:network-wifi')
+            [void](Add-TopAction 'Back to networks' 'panel:Wi-Fi'); return
+        }
+        [void](Add-TopText 'Network password')
+        $script:topWifiPassword = [Windows.Controls.PasswordBox]::new()
+        $topWifiPassword.Padding = [Windows.Thickness]::new(12); $topWifiPassword.Margin = [Windows.Thickness]::new(3,6,3,10)
+        $topWifiPassword.FontSize = 15
+        [Windows.Automation.AutomationProperties]::SetName($topWifiPassword,'Network password')
+        [void]$script:topPanelItems.Children.Add($topWifiPassword)
+        [void](Add-TopText 'Connect for this session. Your password is not saved by the widget.' 11)
+    } elseif (-not $Network.Secure) { [void](Add-TopText 'This is an open network.') }
+    $script:topWifiMessage = Add-TopText ''
+    $script:topWifiConnect = [Windows.Controls.Button]::new(); $topWifiConnect.Style = $script:topPanelButtonStyle; $topWifiConnect.Content = 'Connect'
+    $topWifiConnect.Add_Click({ Start-TopWifiJoin })
+    [void]$script:topPanelItems.Children.Add($topWifiConnect)
+    [void](Add-TopAction 'Back to networks' 'panel:Wi-Fi')
+    if ($topWifiPassword) { $topWifiPassword.Add_KeyDown({ param($sender,$e) if ($e.Key -eq 'Return') { Start-TopWifiJoin; $e.Handled=$true } }); [void]$topWifiPassword.Focus() }
+}
+function Start-TopWifiJoin {
+    if ($script:topWifiJob -and -not $script:topWifiJob.IsCompleted) { return }
+    try {
+        $password = if ($script:topWifiPassword) { $script:topWifiPassword.Password } else { $null }
+        if (-not $script:topWifiSelected.Profile) { [void][MenuWifi]::ProfileXml($script:topWifiSelected,$password) }
+        $script:topWifiJob = [MenuWifi]::ConnectAsync($script:topWifiSelected,$password)
+        $script:topWifiMessage.Text = 'Connecting...'; $script:topWifiConnect.IsEnabled = $false
+    } catch { $script:topWifiMessage.Text = $_.Exception.GetBaseException().Message }
+    finally { $password=$null; if ($script:topWifiPassword) { $script:topWifiPassword.Clear() } }
+}
+function Add-TopTray {
+    [void](Add-TopText 'Background apps' 17 'White')
+    $script:topTrayMessage = Add-TopText 'Loading notification icons...'
+    $script:topTrayRows = [Windows.Controls.StackPanel]::new()
+    [void]$script:topPanelItems.Children.Add($topTrayRows)
+    Add-TopDivider
+    [void](Add-TopText 'Some hidden icons and app menus are available only in the Windows tray.' 11)
+    $native = [Windows.Controls.Button]::new(); $native.Style=$script:topPanelButtonStyle; $native.Content='Windows tray...'
+    $native.Add_Click({ $script:topPanel.IsOpen=$false; Show-WidgetSystemTray })
+    [void]$script:topPanelItems.Children.Add($native)
+    [void](Add-TopAction 'Refresh icons' 'panel:Tray')
+    $script:topTrayJob = [WidgetTray]::ReadAsync()
+}
+$topPanel.Add_Closed({ if ($script:topWifiPassword) { $script:topWifiPassword.Clear() } })
 function Show-TopPanel([string]$Kind,$Anchor) {
     if ($Kind -eq 'Search') { Show-AppSearch; return }
     $script:topPanel.IsOpen = $false
@@ -185,6 +246,7 @@ function Show-TopPanel([string]$Kind,$Anchor) {
     $script:topRadioLoad = $null; $script:topRadioAccess = $null; $script:topRadioSet = $null; $script:topRadio = $null; $script:topVolume = $null; $script:topMute = $null
     $script:topPanel.PlacementTarget = $Anchor
     switch ($Kind) {
+        'Tray' { Add-TopTray }
         'Wi-Fi' {
             [void](Add-TopText 'Wi-Fi' 17 'White'); Add-TopRadio 'WiFi'; Add-TopDivider
             [void](Add-TopText 'Nearby networks' 11); Add-TopNetworks
@@ -235,6 +297,44 @@ function Show-TopPanel([string]$Kind,$Anchor) {
 function Update-TopPanelState {
     if (-not $script:topPanel.IsOpen) { return }
     if (-not $script:topBarEntry.Enabled) { $script:topPanel.IsOpen = $false; return }
+    if ($script:topTrayJob -and $script:topTrayJob.IsCompleted -and $script:topPanelKind -eq 'Tray') {
+        if ($script:topTrayJob.IsFaulted) { $script:topTrayMessage.Text = 'Windows tray icons are unavailable.' }
+        else {
+            $items = @($script:topTrayJob.Result)
+            $script:topTrayMessage.Text = if ($items.Count) { 'Running notification apps' } else { 'No notification icons are exposed by Windows right now.' }
+            foreach ($item in $items) {
+                $row=[Windows.Controls.Button]::new(); $row.Style=$script:topPanelButtonStyle; $row.Tag=$item
+                $label=[Windows.Controls.TextBlock]::new(); $label.Text=$item.Name; $label.TextTrimming='CharacterEllipsis'; $label.MaxWidth=250
+                $body=[Windows.Controls.DockPanel]::new()
+                if ($item.Path) {
+                    $icon=[DockNative]::IconFor($item.Path)
+                    if ($icon -ne [IntPtr]::Zero) {
+                        try {
+                            $image=[Windows.Controls.Image]::new(); $image.Width=22; $image.Height=22; $image.Margin=[Windows.Thickness]::new(0,0,10,0)
+                            $image.Source=[Windows.Interop.Imaging]::CreateBitmapSourceFromHIcon($icon,[Windows.Int32Rect]::Empty,[Windows.Media.Imaging.BitmapSizeOptions]::FromEmptyOptions())
+                            $image.Source.Freeze(); [void]$body.Children.Add($image)
+                        } finally { [void][DockNative]::DestroyIcon($icon) }
+                    }
+                }
+                $label.MaxWidth=215; $label.VerticalAlignment='Center'; [void]$body.Children.Add($label)
+                $row.Content=$body; $row.ToolTip=$item.Name + $(if($item.RegisteredApp){' - Open app (registered tray app currently running)'}else{' - Activate notification icon'})
+                $row.Add_Click({ param($sender,$e) $script:topTrayOpen=$sender.Tag.OpenAsync(); $script:topTrayMessage.Text='Opening app...' })
+                [void]$script:topTrayRows.Children.Add($row)
+            }
+        }
+        $script:topTrayJob=$null
+    }
+    if ($script:topTrayOpen -and $script:topTrayOpen.IsCompleted) {
+        if ($script:topTrayOpen.IsFaulted) { $script:topTrayMessage.Text='Use Windows tray for this icon or its context menu.' } else { $script:topPanel.IsOpen=$false }
+        $script:topTrayOpen=$null
+    }
+    if ($script:topWifiJob -and $script:topWifiJob.IsCompleted) {
+        if ($script:topWifiMessage) {
+            $script:topWifiMessage.Text = if ($script:topWifiJob.IsFaulted) { 'Could not connect. Check the password and try again.' } elseif ($script:topWifiJob.Result) { 'Connected' } else { 'Connection timed out. Check the password and signal, then retry.' }
+            $script:topWifiConnect.IsEnabled=$true
+        }
+        $script:topWifiJob=$null
+    }
     if ($script:topRadioLoad -and $script:topRadioLoad.IsCompleted) {
         try {
             if ($script:topRadioLoad.IsFaulted) { throw 'Radio query failed' }
@@ -264,7 +364,7 @@ function Update-TopPanelState {
         try { $script:topVolume.Value = [MenuAudio]::Volume()*100; $script:topVolumeLabel.Text = 'Sound   ' + [Math]::Round($script:topVolume.Value) + '%'; $script:topMute.Content = if ([MenuAudio]::Muted()) { 'Unmute' } else { 'Mute' } } catch { $script:topVolumeLabel.Text = 'Audio output unavailable' } finally { $script:topPanelUpdating = $false }
     }
 }
-foreach ($pair in @(@('NetworkStatus','Wi-Fi'),@('SoundSettings','Sound'),@('BluetoothStatus','Bluetooth'),@('TopBattery','Battery'),@('TopClock','Calendar'),@('BarSettings','Control Center'),@('SearchMenu','Search'))) {
+foreach ($pair in @(@('TrayStatus','Tray'),@('NetworkStatus','Wi-Fi'),@('SoundSettings','Sound'),@('BluetoothStatus','Bluetooth'),@('TopBattery','Battery'),@('TopClock','Calendar'),@('BarSettings','Control Center'),@('SearchMenu','Search'))) {
     $button = $topBarWindow.FindName($pair[0]); $button.Tag = $pair[1]
     $button.Add_Click({ param($sender,$e) Show-TopPanel ([string]$sender.Tag) $sender })
 }

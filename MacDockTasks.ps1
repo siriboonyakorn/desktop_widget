@@ -27,28 +27,38 @@ $macDockWindow.FindName('MacDockScroll').Add_PreviewMouseWheel({
     $sender.ScrollToHorizontalOffset($sender.HorizontalOffset - $e.Delta)
     $e.Handled = $true
 })
-$script:macZoomTargets = @{}
-$macDockWindow.Add_MouseMove({
-    param($sender,$e)
-    if (-not $script:widgetPreferences.motion -or $script:macDockEntry.Configuring) { return }
-    $point = $e.GetPosition($script:macDockWindow)
+# One animation clock follows the latest pointer position, including fast crossings.
+$script:macMotionClock = [Diagnostics.Stopwatch]::StartNew()
+$script:macMotionLast = 0.0
+$script:macMotionTimer = [Windows.Threading.DispatcherTimer]::new()
+$macMotionTimer.Interval = [TimeSpan]::FromMilliseconds(16)
+$macMotionTimer.Add_Tick({
+    $now = $script:macMotionClock.Elapsed.TotalSeconds
+    $dt = [Math]::Min(0.05, $now - $script:macMotionLast); $script:macMotionLast = $now
+    $hover = $script:macDockWindow.IsMouseOver -and -not $script:macDockEntry.Configuring -and $script:widgetPreferences.motion
+    $point = [Windows.Input.Mouse]::GetPosition($script:macDockWindow)
+    $settled = $true
     foreach ($button in @($script:macDockButtons) + @($script:macDynamicPanel.Children)) {
         if ($button.Content -isnot [Windows.Controls.Image]) { continue }
-        $center = $button.TranslatePoint([Windows.Point]::new($button.ActualWidth / 2,0),$script:macDockWindow)
-        $distance = [Math]::Abs($point.X - $center.X)
-        $scale = 1 + 1.0 * [Math]::Exp(-[Math]::Pow($distance / 64,2))
-        $key = $button.GetHashCode()
-        if ([Math]::Abs($script:macZoomTargets[$key] - $scale) -lt 0.025) { continue }
-        $script:macZoomTargets[$key] = $scale
-        $animation = [Windows.Media.Animation.DoubleAnimation]::new($scale,[Windows.Duration]::new([TimeSpan]::FromMilliseconds(100)))
-        $button.Content.RenderTransform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty,$animation)
-        $button.Content.RenderTransform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty,$animation)
+        $target = 1.0
+        if ($hover) {
+            $center = $button.TranslatePoint([Windows.Point]::new($button.ActualWidth / 2,0),$script:macDockWindow)
+            $target += [Math]::Exp(-[Math]::Pow(($point.X - $center.X) / 64,2))
+        }
+        $transform = $button.Content.RenderTransform
+        $value = $transform.ScaleX + ($target - $transform.ScaleX) * (1 - [Math]::Exp(-$dt / 0.075))
+        if (-not $script:widgetPreferences.motion -or [Math]::Abs($target - $value) -lt 0.001) { $value = $target } else { $settled = $false }
+        $transform.ScaleX = $value; $transform.ScaleY = $value
+    }
+    if (-not $hover -and $settled) { $script:macMotionTimer.Stop() }
+})
+$macDockWindow.Add_MouseMove({
+    if (-not $script:macMotionTimer.IsEnabled) {
+        $script:macMotionLast = $script:macMotionClock.Elapsed.TotalSeconds
+        $script:macMotionTimer.Start()
     }
 })
-$macDockWindow.Add_MouseLeave({
-    $script:macZoomTargets.Clear()
-    foreach ($button in @($script:macDockButtons) + @($script:macDynamicPanel.Children)) { Set-MacDockHover $button $false }
-})
+$macDockWindow.Add_Closed({ $script:macMotionTimer.Stop() })
 
 function Get-MacDockTarget([string]$Path) {
     if (-not $Path) { return '' }
@@ -135,7 +145,7 @@ function Update-MacDockTasks {
 }
 
 function Expand-MacDockIcons {
-    $buttons = @($script:macTrayButton) + @($script:macStartButton) + @($script:macDockButtons | Where-Object Visibility -eq 'Visible') + @($script:macDynamicPanel.Children)
+    $buttons = @($script:macStartButton) + @($script:macDockButtons | Where-Object Visibility -eq 'Visible') + @($script:macDynamicPanel.Children)
     if (-not $buttons.Count) { return }
     $scale = $script:widgetPreferences.widgets.MacDock.scale
     $slotWidth = [Math]::Max(60, ($macDockWindow.Width - 60) / ($scale * $buttons.Count))
@@ -209,9 +219,3 @@ $macPickerTimer.Add_Tick({
 })
 $macPickerTimer.Start()
 $macDockWindow.Add_Closed({ $script:macPickerTimer.Stop(); $script:macPicker.IsOpen = $false })
-$script:macTrayButton = [Windows.Controls.Button]::new()
-$macTrayButton.Style = $script:macDockIconStyle; $macTrayButton.Content = '^'; $macTrayButton.Width = 56; $macTrayButton.Height = 54
-$macTrayButton.ToolTip = 'System tray - background apps (Windows notification area)'
-[Windows.Automation.AutomationProperties]::SetName($macTrayButton,'Show Windows system tray and background apps')
-$macTrayButton.Add_Click({ Show-WidgetSystemTray })
-[void]$macDockWindow.FindName('MacDockButtons').Children.Add($macTrayButton)

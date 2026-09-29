@@ -54,12 +54,11 @@ function Move-MacDockShortcut([int]$From, [int]$To) {
 }
 
 function Set-MacDockHover($Button, [bool]$Hovered) {
-    if ($Button.Content -isnot [Windows.Controls.Image]) { return }
-    $duration = if ($script:widgetPreferences -and -not $script:widgetPreferences.motion) { 0 } else { 150 }
-    $zoom = [Windows.Media.Animation.DoubleAnimation]::new($(if ($Hovered) { 2.0 } else { 1.0 }), [Windows.Duration]::new([TimeSpan]::FromMilliseconds($duration)))
-    $zoom.EasingFunction = [Windows.Media.Animation.QuadraticEase]::new()
-    $Button.Content.RenderTransform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoom)
-    $Button.Content.RenderTransform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoom)
+    # Neighbor magnification is driven by the shared frame timer in MacDockTasks.
+    if ($script:macMotionTimer -and -not $script:macMotionTimer.IsEnabled) {
+        $script:macMotionLast = $script:macMotionClock.Elapsed.TotalSeconds
+        $script:macMotionTimer.Start()
+    }
 }
 
 function Update-MacDockButtons {

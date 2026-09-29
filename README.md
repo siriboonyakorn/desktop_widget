@@ -1,4 +1,4 @@
-﻿# desktop_widget
+# desktop_widget
 
 A customizable Windows desktop widget suite built with **Windows PowerShell 5.1 and WPF**. No Python, Node.js, browser extension, paid app, or administrator installation is required to run it.
 
@@ -6,7 +6,8 @@ A customizable Windows desktop widget suite built with **Windows PowerShell 5.1 
 
 - **Ctrl+Shift+Q app search**: a centered launcher for installed apps and Start Menu/Desktop shortcuts. Type a name, use Up/Down to select, and press Enter to launch. Escape, a second hotkey press, or clicking outside dismisses it.
 - Glass-style top menu bar with Wi-Fi, Bluetooth, sound, battery, calendar and Control Center panels.
-- Bottom app dock with running indicators, grouped windows, a hover window picker and access to the Windows system tray.
+- Bottom app dock with running indicators, grouped windows, a hover window picker and frame-based magnification.
+- Top-bar background-app tray with app icons and access to native notification menus.
 - Desktop clock, calendar, battery, weather, photo frame, quick notes, folders and a system monitor.
 - Media playback controls and a small animated desktop companion.
 - Local customization: themes, colors, sizes, positions, visibility and motion settings.
@@ -62,7 +63,8 @@ Weather currently uses **Bangkok** coordinates and the Open-Meteo service; locat
 ## Limits
 
 - This is a Windows overlay, not a replacement Windows shell or a macOS implementation. Rounded WPF menus use an opaque glass-style gradient to avoid rectangular native-acrylic artifacts.
-- New Wi-Fi passwords, Bluetooth pairing, output-device selection and some controls open Windows Settings. Windows controls radio permissions.
+- Wi-Fi connects saved profiles and supports in-panel passwords for WPA2/WPA3 Personal, plus open networks. New connections are session-only. Enterprise/legacy setup, Bluetooth pairing and output-device selection use Windows Settings. Windows controls radio and location permissions.
+- The custom tray supplements accessible icons with registered notification apps whose executable is running. Registration can outlast an icon; use Windows tray for authoritative icons and context menus.
 - Current placement is designed around the primary display. Other monitor/DPI configurations need more testing.
 - A media app must expose Windows media controls for playback/seek integration.
 - Legacy `NotificationApp` and `*NotificationApp.ps1` files are an inactive experiment, not the recommended installation path. Do not run their certificate/install scripts for the normal widgets.

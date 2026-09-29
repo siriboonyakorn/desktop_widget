@@ -37,7 +37,7 @@ public static class MenuWifi {
   public uint Signal; [MarshalAs(UnmanagedType.Bool)] public bool Security; public int Auth,Cipher; public uint Flags,Reserved;
  }
  [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)] struct Connection { public int Mode; [MarshalAs(UnmanagedType.LPWStr)] public string Profile; public IntPtr Ssid,Desired; public int Bss; public uint Flags; }
- public class Item { public string Name,Profile; public Guid Adapter; public uint Signal; public bool Connected,Secure; }
+ public class Item { public string Name,Profile,SsidHex; public int Auth,Cipher; public Guid Adapter; public uint Signal; public bool Connected,Secure; }
  [DllImport("wlanapi.dll")] static extern uint WlanOpenHandle(uint version,IntPtr reserved,out uint negotiated,out IntPtr handle);
  [DllImport("wlanapi.dll")] static extern uint WlanCloseHandle(IntPtr h,IntPtr r);
  [DllImport("wlanapi.dll")] static extern uint WlanEnumInterfaces(IntPtr h,IntPtr r,out IntPtr list);
@@ -53,17 +53,41 @@ public static class MenuWifi {
     try {Check(WlanGetAvailableNetworkList(h,ref adapter.Id,0,IntPtr.Zero,out nets));
      for(int n=0;n<Marshal.ReadInt32(nets);n++) {var v=(Network)Marshal.PtrToStructure(IntPtr.Add(nets,8+n*Marshal.SizeOf(typeof(Network))),typeof(Network));
       string name=System.Text.Encoding.UTF8.GetString(v.Ssid.Bytes,0,(int)Math.Min(v.Ssid.Length,32));
-      if(name.Length>0)items.Add(new Item{Name=name,Profile=v.Profile,Adapter=adapter.Id,Signal=v.Signal,Connected=(v.Flags&1)!=0,Secure=v.Security});
+      if(name.Length>0)items.Add(new Item{Name=name,Profile=v.Profile,Adapter=adapter.Id,Signal=v.Signal,Connected=(v.Flags&1)!=0,Secure=v.Security,Auth=v.Auth,Cipher=v.Cipher,SsidHex=BitConverter.ToString(v.Ssid.Bytes,0,(int)Math.Min(v.Ssid.Length,32)).Replace("-","")});
      }
     } finally {if(nets!=IntPtr.Zero)WlanFreeMemory(nets);}
    }return items.ToArray();
   } finally {if(list!=IntPtr.Zero)WlanFreeMemory(list);if(h!=IntPtr.Zero)WlanCloseHandle(h,IntPtr.Zero);}
  }
- public static void Connect(Item item) {
-  if(String.IsNullOrEmpty(item.Profile))throw new InvalidOperationException("Set up this network in Windows Wi-Fi Settings first.");
-  IntPtr h;uint v;Check(WlanOpenHandle(2,IntPtr.Zero,out v,out h));
-  try {var c=new Connection{Mode=0,Profile=item.Profile,Bss=1};var id=item.Adapter;Check(WlanConnect(h,ref id,ref c,IntPtr.Zero));} finally {WlanCloseHandle(h,IntPtr.Zero);}
+ public static string ProfileXml(Item item,string password) {
+  string auth,cipher;
+  if(!item.Secure) {auth="open";cipher="none";}
+  else if(item.Auth==7 && item.Cipher==4) {auth="WPA2PSK";cipher="AES";}
+  else if(item.Auth==9 && item.Cipher==4) {auth="WPA3SAE";cipher="AES";}
+  else throw new NotSupportedException("This network uses enterprise or legacy security. Set it up in Windows first.");
+  if(item.Secure && (password==null || password.Length<8 || password.Length>63)) throw new ArgumentException("Enter a password between 8 and 63 characters.");
+  Func<string,string> escape=System.Security.SecurityElement.Escape;
+  string key=item.Secure ? "<sharedKey><keyType>passPhrase</keyType><protected>false</protected><keyMaterial>"+escape(password)+"</keyMaterial></sharedKey>" : "";
+  return "<WLANProfile xmlns=\"http://www.microsoft.com/networking/WLAN/profile/v1\"><name>"+escape(item.Name)+"</name><SSIDConfig><SSID><hex>"+item.SsidHex+"</hex></SSID></SSIDConfig><connectionType>ESS</connectionType><connectionMode>manual</connectionMode><MSM><security><authEncryption><authentication>"+auth+"</authentication><encryption>"+cipher+"</encryption><useOneX>false</useOneX></authEncryption>"+key+"</security></MSM></WLANProfile>";
  }
+ public static System.Threading.Tasks.Task<bool> ConnectAsync(Item item,string password) {
+  return System.Threading.Tasks.Task.Run(() => {
+   Connect(item,password);
+   for(int i=0;i<25;i++) {
+    System.Threading.Thread.Sleep(1000);
+    foreach(var network in Networks()) if(network.Adapter==item.Adapter && network.SsidHex==item.SsidHex && network.Connected)return true;
+   }
+   return false;
+  });
+ }
+ public static void Connect(Item item) { Connect(item,null); }
+ public static void Connect(Item item,string password) {
+  bool saved=!String.IsNullOrEmpty(item.Profile);
+  string profile=saved ? item.Profile : ProfileXml(item,password);
+  IntPtr h;uint v;Check(WlanOpenHandle(2,IntPtr.Zero,out v,out h));
+  try {var c=new Connection{Mode=saved?0:1,Profile=profile,Bss=1};var id=item.Adapter;Check(WlanConnect(h,ref id,ref c,IntPtr.Zero));} finally {WlanCloseHandle(h,IntPtr.Zero);}
+ }
+
 }
 public static class MenuGlass {
  [StructLayout(LayoutKind.Sequential)] struct Accent {public int State,Flags;public uint Color;public int Animation;}

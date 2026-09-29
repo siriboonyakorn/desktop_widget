@@ -26,6 +26,7 @@
      <Button x:Name="HelpMenu" Content="Help"/>
     </StackPanel>
     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+     <Button x:Name="TrayStatus" Content="&#xE712;" FontFamily="Segoe MDL2 Assets" ToolTip="Background apps" AutomationProperties.Name="Background apps tray"/>
      <Button x:Name="BluetoothStatus" Content="&#xE702;" FontFamily="Segoe MDL2 Assets" ToolTip="Bluetooth"/>
      <Button x:Name="NetworkStatus" Content="&#xE701;" FontFamily="Segoe MDL2 Assets" ToolTip="Wi-Fi"/>
      <Button x:Name="SoundSettings" Content="&#xE767;" FontFamily="Segoe MDL2 Assets" ToolTip="Sound"/>

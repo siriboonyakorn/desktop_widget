@@ -32,7 +32,7 @@ try {
     [void](Test-TopBarDwell $dwell $false $now.AddMilliseconds(1100))
     if (Test-TopBarDwell $dwell $true $now.AddMilliseconds(1500)) { throw 'Leaving the edge must reset dwell' }
     Update-MacDockTasks
-    if ($macDockWindow.FindName('MacDockButtons').Children.Count -ne ($script:macDockPaths.Count + 3)) { throw 'Dock should contain Start, pinned apps, running apps and tray.' }
+    if ($macDockWindow.FindName('MacDockButtons').Children.Count -ne ($script:macDockPaths.Count + 2)) { throw 'Dock should contain Start, pinned apps, running apps.' }
     $script:widgetPreferences.dockWidth = 96
     $wide = Get-WidgetPlacement $script:macDockEntry $work
     if ([Math]::Abs($macDockWindow.Width - 1228.8) -gt 0.1) { throw 'Dock width should use 96 percent of the work area.' }

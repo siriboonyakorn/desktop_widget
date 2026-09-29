@@ -2,8 +2,9 @@
 . (Join-Path $PSScriptRoot 'ClockWidget.ps1') -Preview
 try {
  $topBarWindow.Opacity=1; $script:topBarEntry.Slide.Y=0; $topBarWindow.Show();$topBarWindow.UpdateLayout()
- foreach($kind in @('Wi-Fi','Sound','Bluetooth','Battery','Calendar','Control Center')) {
+ foreach($kind in @('Tray','Wi-Fi','Sound','Bluetooth','Battery','Calendar','Control Center')) {
   Show-TopPanel $kind $topBarWindow.FindName('BarSettings')
+  if($kind -eq 'Tray') { if(-not $script:topTrayJob.Wait(8000)){throw 'Tray timed out'}; Update-TopPanelState }
   if($script:topRadioLoad){
    $deadline=[DateTime]::Now.AddSeconds(3)
    while(-not $script:topRadioLoad.IsCompleted -and [DateTime]::Now -lt $deadline){Start-Sleep -Milliseconds 50}
